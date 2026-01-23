@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Googleフォト モザイク・ぼかし",
+    "description": "The name of the application"
+  },
+  "appDescription": {
+    "message": "Googleフォトで表示中の画像にモザイクやぼかし加工を行う拡張機能です。",
+    "description": "The description of the application"
+  }
+}

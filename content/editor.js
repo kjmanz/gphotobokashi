@@ -10,6 +10,8 @@ class Editor {
         this.mode = 'mosaic';
         this.brushSize = 50;
         this.brushSizePresets = { small: 20, medium: 50, large: 100 };
+        this.mosaicIntensity = 50; // 1-100, モザイクのブロックサイズに影響
+        this.blurIntensity = 50;   // 1-100, ぼかしの強さに影響
         this.isSelecting = false;
         this.selectionStart = { x: 0, y: 0 };
         this.selectionRect = null;
@@ -109,7 +111,7 @@ class Editor {
             // but for Google Photos we often need to rely on 'no-cors' -> opaque -> tainted canvas.
             // Wait, tainted canvas cannot be read (getImageData fails). 
             // Extension host permissions should allow us to fetch via XHR/fetch and get a clean blob.
-            
+
             const response = await fetch(src, { credentials: 'include' });
             const blob = await response.blob();
             const bitmap = await createImageBitmap(blob);
@@ -120,7 +122,7 @@ class Editor {
             this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
             this.ctx.drawImage(bitmap, 0, 0);
 
-            this.saveState(); 
+            this.saveState();
         } catch (e) {
             console.error('Failed to load image:', e);
             alert('画像の読み込みに失敗しました。');
@@ -144,9 +146,21 @@ class Editor {
         
         <span class="brush-settings">
             <span class="divider"></span>
-            <span>ブラシサイズ:</span>
+            <span>ブラシ:</span>
             <input type="range" id="brush-slider" min="10" max="200" value="50" title="ブラシサイズ (1/2/3)">
             <span id="brush-size-val">50px</span>
+        </span>
+        <span class="intensity-settings">
+            <span class="divider"></span>
+            <span>モザイク強度:</span>
+            <input type="range" id="mosaic-intensity-slider" min="10" max="100" value="50" title="モザイクのブロックサイズ">
+            <span id="mosaic-intensity-val">50%</span>
+        </span>
+        <span class="intensity-settings">
+            <span class="divider"></span>
+            <span>ぼかし強度:</span>
+            <input type="range" id="blur-intensity-slider" min="10" max="100" value="50" title="ぼかしの強さ">
+            <span id="blur-intensity-val">50%</span>
         </span>
       </div>
       
@@ -193,6 +207,16 @@ class Editor {
             this.setBrushSize(parseInt(e.target.value));
         };
 
+        const mosaicSlider = document.getElementById('mosaic-intensity-slider');
+        mosaicSlider.oninput = (e) => {
+            this.setMosaicIntensity(parseInt(e.target.value));
+        };
+
+        const blurSlider = document.getElementById('blur-intensity-slider');
+        blurSlider.oninput = (e) => {
+            this.setBlurIntensity(parseInt(e.target.value));
+        };
+
         document.getElementById('btn-undo').onclick = () => this.undo();
         document.getElementById('btn-redo').onclick = () => this.redo();
         document.getElementById('btn-cancel').onclick = () => this.requestClose();
@@ -207,7 +231,7 @@ class Editor {
         if (this.pendingSelection) {
             this.clearPendingSelection();
         }
-        
+
         // Update UI buttons
         document.getElementById('btn-mosaic').classList.toggle('active', mode === 'mosaic');
         document.getElementById('btn-blur').classList.toggle('active', mode === 'blur');
@@ -285,9 +309,40 @@ class Editor {
         this.updateCursorSize();
     }
 
+    setMosaicIntensity(value) {
+        this.mosaicIntensity = Math.min(100, Math.max(10, value));
+        this.updateIntensityUI();
+    }
+
+    setBlurIntensity(value) {
+        this.blurIntensity = Math.min(100, Math.max(10, value));
+        this.updateIntensityUI();
+    }
+
+    updateIntensityUI() {
+        const mosaicSlider = document.getElementById('mosaic-intensity-slider');
+        const mosaicLabel = document.getElementById('mosaic-intensity-val');
+        if (mosaicSlider) mosaicSlider.value = String(this.mosaicIntensity);
+        if (mosaicLabel) mosaicLabel.textContent = `${this.mosaicIntensity}%`;
+
+        const blurSlider = document.getElementById('blur-intensity-slider');
+        const blurLabel = document.getElementById('blur-intensity-val');
+        if (blurSlider) blurSlider.value = String(this.blurIntensity);
+        if (blurLabel) blurLabel.textContent = `${this.blurIntensity}%`;
+    }
+
+    getMosaicBlockSize() {
+        // mosaicIntensity 10-100 → blockSize 5-50
+        return Math.round(5 + (this.mosaicIntensity - 10) * (45 / 90));
+    }
+
+    getBlurAmount() {
+        // blurIntensity 10-100 → blur 2-25px
+        return Math.round(2 + (this.blurIntensity - 10) * (23 / 90));
+    }
+
     getBlurIntensity() {
-        const intensity = Math.round(this.brushSize / 15);
-        return Math.min(20, Math.max(2, intensity));
+        return this.getBlurAmount();
     }
 
     handleMouseMove(e) {
@@ -356,10 +411,10 @@ class Editor {
         const { x, y } = this.getCanvasCoordinates(e);
 
         if (this.mode === 'mosaic') {
-            const blockSize = Math.max(10, Math.round(this.brushSize / 2));
+            const blockSize = this.getMosaicBlockSize();
             ImageProcessor.applyMosaic(this.ctx, x, y, this.brushSize, blockSize);
         } else if (this.mode === 'blur') {
-            ImageProcessor.applyBlur(this.ctx, x, y, this.brushSize, this.getBlurIntensity());
+            ImageProcessor.applyBlur(this.ctx, x, y, this.brushSize, this.getBlurAmount());
         }
     }
 
@@ -429,13 +484,13 @@ class Editor {
         if (!this.isPolySelecting) return;
         const coords = this.getCanvasCoordinates(e);
         this.polyHoverPoint = coords;
-        
+
         // 始点へのホバー検出
         const nearFirst = this.isNearFirstPoint(coords) && this.polyPoints.length >= 3;
         this.updateStartPointHover(nearFirst);
         this.updateCloseHint(nearFirst, e);
         this.updateSnapLine(nearFirst, coords);
-        
+
         this.updatePolygonUI();
         this.updatePolyHelpTooltip();
     }
@@ -512,7 +567,7 @@ class Editor {
             const scaleY = rect.height / this.canvas.height;
             const lastPoint = this.polyPoints[this.polyPoints.length - 1];
             const firstPoint = this.polyPoints[0];
-            
+
             this.selectionSnapLine.setAttribute('x1', String(lastPoint.x * scaleX));
             this.selectionSnapLine.setAttribute('y1', String(lastPoint.y * scaleY));
             this.selectionSnapLine.setAttribute('x2', String(firstPoint.x * scaleX));
@@ -600,7 +655,7 @@ class Editor {
 
     applyPendingSelection(isInverse) {
         if (!this.pendingSelection) return;
-        const blockSize = Math.max(10, Math.round(this.brushSize / 2));
+        const blockSize = this.getMosaicBlockSize();
 
         if (this.pendingSelection.kind === 'rect') {
             const rect = this.pendingSelection.rect;

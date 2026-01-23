@@ -136,37 +136,43 @@ class Editor {
         this.toolbar = toolbar;
 
         toolbar.innerHTML = `
-      <div class="gphoto-editor-group">
-        <button id="btn-mosaic" class="gphoto-editor-btn" title="モザイク (M)">モザイク</button>
-        <button id="btn-blur" class="gphoto-editor-btn" title="ぼかし (B)">ぼかし</button>
-        <button id="btn-select-mosaic" class="gphoto-editor-btn" title="矩形・範囲内モザイク (I)">矩形内モザイク</button>
-        <button id="btn-select-mosaic-inv" class="gphoto-editor-btn" title="矩形・範囲外モザイク (O)">矩形外モザイク</button>
-        <button id="btn-poly-mosaic" class="gphoto-editor-btn" title="多角形・範囲内モザイク (P)">多角形内モザイク</button>
-        <button id="btn-poly-mosaic-inv" class="gphoto-editor-btn" title="多角形・範囲外モザイク (Shift+P)">多角形外モザイク</button>
-        
-        <span class="brush-settings">
-            <span class="divider"></span>
-            <span>ブラシ:</span>
-            <input type="range" id="brush-slider" min="10" max="200" value="50" title="ブラシサイズ (1/2/3)">
-            <span id="brush-size-val">50px</span>
-        </span>
-        <span class="intensity-settings">
-            <span class="divider"></span>
-            <span>モザイク強度:</span>
-            <input type="range" id="mosaic-intensity-slider" min="10" max="100" value="50" title="モザイクのブロックサイズ">
-            <span id="mosaic-intensity-val">50%</span>
-        </span>
-        <span class="intensity-settings">
-            <span class="divider"></span>
-            <span>ぼかし強度:</span>
-            <input type="range" id="blur-intensity-slider" min="10" max="100" value="50" title="ぼかしの強さ">
-            <span id="blur-intensity-val">50%</span>
-        </span>
+      <div class="toolbar-row toolbar-tools">
+        <div class="gphoto-editor-group tool-group">
+          <span class="group-label">ブラシ</span>
+          <button id="btn-mosaic" class="gphoto-editor-btn tool-btn" title="モザイク (M)">🔲 モザイク</button>
+          <button id="btn-blur" class="gphoto-editor-btn tool-btn" title="ぼかし (B)">💨 ぼかし</button>
+        </div>
+        <div class="gphoto-editor-group tool-group">
+          <span class="group-label">矩形選択</span>
+          <button id="btn-select-mosaic" class="gphoto-editor-btn tool-btn" title="矩形・範囲内 (I)">▣ 内側</button>
+          <button id="btn-select-mosaic-inv" class="gphoto-editor-btn tool-btn" title="矩形・範囲外 (O)">▢ 外側</button>
+        </div>
+        <div class="gphoto-editor-group tool-group">
+          <span class="group-label">多角形選択</span>
+          <button id="btn-poly-mosaic" class="gphoto-editor-btn tool-btn" title="多角形・範囲内 (P)">⬡ 内側</button>
+          <button id="btn-poly-mosaic-inv" class="gphoto-editor-btn tool-btn" title="多角形・範囲外 (Shift+P)">⬢ 外側</button>
+        </div>
+        <div class="gphoto-editor-group">
+          <button id="btn-undo" class="gphoto-editor-btn icon-btn" title="元に戻す (Ctrl+Z)">↩️</button>
+          <button id="btn-redo" class="gphoto-editor-btn icon-btn" title="やり直し (Ctrl+Y)">↪️</button>
+        </div>
       </div>
-      
-      <div class="gphoto-editor-group">
-        <button id="btn-undo" class="gphoto-editor-btn" title="元に戻す (Ctrl+Z)">元に戻す</button>
-        <button id="btn-redo" class="gphoto-editor-btn" title="やり直し (Ctrl+Y)">やり直し</button>
+      <div class="toolbar-row toolbar-settings">
+        <div class="setting-item">
+          <label>ブラシサイズ</label>
+          <input type="range" id="brush-slider" min="10" max="200" value="50">
+          <span id="brush-size-val" class="setting-value">50px</span>
+        </div>
+        <div class="setting-item">
+          <label>モザイク強度</label>
+          <input type="range" id="mosaic-intensity-slider" min="10" max="100" value="50">
+          <span id="mosaic-intensity-val" class="setting-value">50%</span>
+        </div>
+        <div class="setting-item">
+          <label>ぼかし強度</label>
+          <input type="range" id="blur-intensity-slider" min="10" max="100" value="50">
+          <span id="blur-intensity-val" class="setting-value">50%</span>
+        </div>
       </div>
     `;
 

@@ -18,15 +18,10 @@
   top: 0;
   left: 0;
   width: 100%;
-  min-height: 60px;
-  height: auto;
   background: #1a1a1a;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  row-gap: 8px;
-  padding: 0 20px;
+  flex-direction: column;
+  padding: 8px 16px;
   box-sizing: border-box;
   color: white;
   font-family: 'Google Sans', Roboto, sans-serif;
@@ -34,12 +29,92 @@
   z-index: 100001;
 }
 
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.toolbar-tools {
+  justify-content: flex-start;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+  flex-wrap: wrap;
+}
+
+.toolbar-settings {
+  padding-top: 8px;
+  justify-content: center;
+  gap: 24px;
+}
+
+.tool-group {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 8px;
+  border-radius: 8px;
+  gap: 4px;
+}
+
+.group-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 4px;
+}
+
+.gphoto-editor-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.setting-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-item label {
+  font-size: 12px;
+  color: #aaa;
+  min-width: 80px;
+}
+
+.setting-item input[type="range"] {
+  width: 100px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #444;
+  border-radius: 2px;
+  outline: none;
+}
+
+.setting-item input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #8ab4f8;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.setting-value {
+  font-size: 12px;
+  color: #8ab4f8;
+  min-width: 40px;
+  text-align: right;
+}
+
 #gphoto-editor-actions {
   position: fixed;
   bottom: 0;
   left: 0;
   width: 100%;
-  min-height: 60px;
+  min-height: 50px;
   height: auto;
   background: #1a1a1a;
   display: flex;
@@ -47,7 +122,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   row-gap: 8px;
-  padding: 0 20px;
+  padding: 8px 20px;
   box-sizing: border-box;
   color: white;
   font-family: 'Google Sans', Roboto, sans-serif;
@@ -55,43 +130,24 @@
   z-index: 100001;
 }
 
-.gphoto-editor-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brush-settings {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.intensity-settings {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.intensity-settings input[type="range"] {
-  width: 80px;
-}
-
-.brush-settings .divider {
-  border-left: 1px solid #555;
-  height: 20px;
-  display: inline-block;
-}
-
 .gphoto-editor-btn {
   background: #3c4043;
   border: 1px solid #5f6368;
   color: #e8eaed;
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: 6px 12px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
-  transition: background 0.2s;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.tool-btn {
+  padding: 6px 10px;
+}
+
+.icon-btn {
+  padding: 6px 10px;
+  font-size: 16px;
 }
 
 .gphoto-editor-btn:hover {

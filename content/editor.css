@@ -160,3 +160,27 @@ input[type="range"] {
   z-index: 100000;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
+
+.selection-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 100000;
+  display: none;
+}
+
+.selection-polyline {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.selection-polygon {
+  fill: rgba(255, 255, 255, 0.15);
+  stroke: #ffffff;
+  stroke-width: 2;
+}

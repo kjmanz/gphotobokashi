@@ -14,11 +14,18 @@ class Editor {
         this.selectionStart = { x: 0, y: 0 };
         this.selectionRect = null;
         this.selectionBoxEl = null;
+        this.isPolySelecting = false;
+        this.polyPoints = [];
+        this.polyHoverPoint = null;
+        this.selectionSvg = null;
+        this.selectionPolyline = null;
+        this.selectionPolygon = null;
 
         // Bind methods
         this.handleMouseDown = this.handleMouseDown.bind(this);
         this.handleMouseMove = this.handleMouseMove.bind(this);
         this.handleMouseUp = this.handleMouseUp.bind(this);
+        this.handleDoubleClick = this.handleDoubleClick.bind(this);
         this.handleKeyDown = this.handleKeyDown.bind(this);
     }
 
@@ -44,6 +51,16 @@ class Editor {
         this.selectionBoxEl = document.createElement('div');
         this.selectionBoxEl.className = 'selection-box';
         container.appendChild(this.selectionBoxEl);
+
+        this.selectionSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        this.selectionSvg.classList.add('selection-svg');
+        this.selectionPolyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        this.selectionPolyline.classList.add('selection-polyline');
+        this.selectionPolygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        this.selectionPolygon.classList.add('selection-polygon');
+        this.selectionSvg.appendChild(this.selectionPolygon);
+        this.selectionSvg.appendChild(this.selectionPolyline);
+        container.appendChild(this.selectionSvg);
 
         this.overlay.appendChild(container);
         document.body.appendChild(this.overlay);
@@ -95,8 +112,10 @@ class Editor {
       <div class="gphoto-editor-group">
         <button id="btn-mosaic" class="gphoto-editor-btn" title="モザイク (M)">モザイク</button>
         <button id="btn-blur" class="gphoto-editor-btn" title="ぼかし (B)">ぼかし</button>
-        <button id="btn-select-mosaic" class="gphoto-editor-btn" title="範囲内モザイク (I)">範囲内モザイク</button>
-        <button id="btn-select-mosaic-inv" class="gphoto-editor-btn" title="範囲外モザイク (O)">範囲外モザイク</button>
+        <button id="btn-select-mosaic" class="gphoto-editor-btn" title="矩形・範囲内モザイク (I)">矩形内モザイク</button>
+        <button id="btn-select-mosaic-inv" class="gphoto-editor-btn" title="矩形・範囲外モザイク (O)">矩形外モザイク</button>
+        <button id="btn-poly-mosaic" class="gphoto-editor-btn" title="多角形・範囲内モザイク (P)">多角形内モザイク</button>
+        <button id="btn-poly-mosaic-inv" class="gphoto-editor-btn" title="多角形・範囲外モザイク (Shift+P)">多角形外モザイク</button>
         
         <span class="brush-settings">
             <span class="divider"></span>
@@ -139,6 +158,8 @@ class Editor {
         document.getElementById('btn-blur').onclick = () => this.setMode('blur');
         document.getElementById('btn-select-mosaic').onclick = () => this.setMode('select-mosaic');
         document.getElementById('btn-select-mosaic-inv').onclick = () => this.setMode('select-mosaic-inv');
+        document.getElementById('btn-poly-mosaic').onclick = () => this.setMode('select-poly-mosaic');
+        document.getElementById('btn-poly-mosaic-inv').onclick = () => this.setMode('select-poly-mosaic-inv');
 
         const slider = document.getElementById('brush-slider');
         slider.oninput = (e) => {
@@ -154,24 +175,33 @@ class Editor {
     setMode(mode) {
         this.mode = mode;
         const isSelect = mode.startsWith('select');
+        const isPoly = mode.startsWith('select-poly');
         
         // Update UI buttons
         document.getElementById('btn-mosaic').classList.toggle('active', mode === 'mosaic');
         document.getElementById('btn-blur').classList.toggle('active', mode === 'blur');
         document.getElementById('btn-select-mosaic').classList.toggle('active', mode === 'select-mosaic');
         document.getElementById('btn-select-mosaic-inv').classList.toggle('active', mode === 'select-mosaic-inv');
+        document.getElementById('btn-poly-mosaic').classList.toggle('active', mode === 'select-poly-mosaic');
+        document.getElementById('btn-poly-mosaic-inv').classList.toggle('active', mode === 'select-poly-mosaic-inv');
 
         // Cursor style
         this.canvas.style.cursor = isSelect ? 'crosshair' : 'none';
         this.brushCursor.style.display = 'none';
         if (!isSelect) {
             this.clearSelectionUI();
+            this.clearPolygonUI();
+        } else if (isPoly) {
+            this.clearSelectionUI();
+        } else {
+            this.clearPolygonUI();
         }
         this.updateCursorSize();
     }
 
     attachEvents() {
         this.canvas.addEventListener('mousedown', this.handleMouseDown);
+        this.canvas.addEventListener('dblclick', this.handleDoubleClick);
         window.addEventListener('mousemove', this.handleMouseMove);
         window.addEventListener('mouseup', this.handleMouseUp);
         document.addEventListener('keydown', this.handleKeyDown);
@@ -179,6 +209,7 @@ class Editor {
 
     detachEvents() {
         this.canvas.removeEventListener('mousedown', this.handleMouseDown);
+        this.canvas.removeEventListener('dblclick', this.handleDoubleClick);
         window.removeEventListener('mousemove', this.handleMouseMove);
         window.removeEventListener('mouseup', this.handleMouseUp);
         document.removeEventListener('keydown', this.handleKeyDown);
@@ -215,7 +246,9 @@ class Editor {
     }
 
     handleMouseMove(e) {
-        if (this.mode.startsWith('select')) {
+        if (this.mode.startsWith('select-poly')) {
+            this.handlePolygonMove(e);
+        } else if (this.mode.startsWith('select')) {
             this.handleSelectionMove(e);
         } else {
             this.handleBrushMove(e);
@@ -226,7 +259,9 @@ class Editor {
         if (e.target !== this.canvas) return;
         if (e.button !== 0) return;
 
-        if (this.mode.startsWith('select')) {
+        if (this.mode.startsWith('select-poly')) {
+            this.handlePolygonClick(e);
+        } else if (this.mode.startsWith('select')) {
             this.handleSelectionDown(e);
         } else {
             this.isDrawing = true;
@@ -235,6 +270,10 @@ class Editor {
     }
 
     handleMouseUp(e) {
+        if (this.mode.startsWith('select-poly')) {
+            return;
+        }
+
         if (this.mode.startsWith('select')) {
             this.handleSelectionUp(e);
         } else {
@@ -282,6 +321,7 @@ class Editor {
     // --- Selection Logic ---
 
     handleSelectionDown(e) {
+        this.clearPolygonUI();
         this.clearSelectionUI();
         this.isSelecting = true;
         const coords = this.getCanvasCoordinates(e);
@@ -347,7 +387,93 @@ class Editor {
             this.selectionBoxEl.style.width = '0px';
             this.selectionBoxEl.style.height = '0px';
         }
+        this.isSelecting = false;
         this.selectionRect = null;
+    }
+
+    handlePolygonMove(e) {
+        if (!this.isPolySelecting) return;
+        const coords = this.getCanvasCoordinates(e);
+        this.polyHoverPoint = coords;
+        this.updatePolygonUI();
+    }
+
+    handlePolygonClick(e) {
+        const coords = this.getCanvasCoordinates(e);
+        if (!this.isPolySelecting) {
+            this.clearSelectionUI();
+            this.isPolySelecting = true;
+            this.polyPoints = [coords];
+            this.polyHoverPoint = null;
+            this.updatePolygonUI();
+            return;
+        }
+
+        if (this.isNearFirstPoint(coords) && this.polyPoints.length >= 3) {
+            this.finalizePolygonSelection();
+            return;
+        }
+
+        this.polyPoints.push(coords);
+        this.updatePolygonUI();
+    }
+
+    handleDoubleClick(e) {
+        if (!this.mode.startsWith('select-poly')) return;
+        if (this.polyPoints.length >= 3) {
+            this.finalizePolygonSelection();
+        }
+    }
+
+    isNearFirstPoint(coords) {
+        if (this.polyPoints.length === 0) return false;
+        const rect = this.canvas.getBoundingClientRect();
+        if (rect.width === 0) return false;
+        const threshold = 8 * (this.canvas.width / rect.width);
+        const dx = coords.x - this.polyPoints[0].x;
+        const dy = coords.y - this.polyPoints[0].y;
+        return Math.sqrt(dx * dx + dy * dy) <= threshold;
+    }
+
+    finalizePolygonSelection() {
+        if (this.polyPoints.length < 3) return;
+        const blockSize = Math.max(10, Math.round(this.brushSize / 2));
+        if (this.mode === 'select-poly-mosaic') {
+            ImageProcessor.applyMosaicToPolygon(this.ctx, this.polyPoints, blockSize);
+        } else if (this.mode === 'select-poly-mosaic-inv') {
+            ImageProcessor.applyMosaicToPolygonInverse(this.ctx, this.polyPoints, blockSize);
+        }
+
+        this.saveState();
+        this.clearPolygonUI();
+    }
+
+    updatePolygonUI() {
+        if (!this.selectionSvg) return;
+        const rect = this.canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+
+        const scaleX = rect.width / this.canvas.width;
+        const scaleY = rect.height / this.canvas.height;
+        const points = this.polyPoints.map((p) => `${p.x * scaleX},${p.y * scaleY}`);
+        const polylinePoints = [...points];
+
+        if (this.polyHoverPoint) {
+            polylinePoints.push(`${this.polyHoverPoint.x * scaleX},${this.polyHoverPoint.y * scaleY}`);
+        }
+
+        this.selectionPolyline.setAttribute('points', polylinePoints.join(' '));
+        this.selectionPolygon.setAttribute('points', points.join(' '));
+        this.selectionSvg.style.display = this.polyPoints.length > 0 ? 'block' : 'none';
+    }
+
+    clearPolygonUI() {
+        this.isPolySelecting = false;
+        this.polyPoints = [];
+        this.polyHoverPoint = null;
+        if (this.selectionPolyline) this.selectionPolyline.setAttribute('points', '');
+        if (this.selectionPolygon) this.selectionPolygon.setAttribute('points', '');
+        if (this.selectionSvg) this.selectionSvg.style.display = 'none';
     }
 
     handleKeyDown(e) {
@@ -389,6 +515,10 @@ class Editor {
             this.setMode('select-mosaic');
         } else if (key === 'o') {
             this.setMode('select-mosaic-inv');
+        } else if (key === 'p' && e.shiftKey) {
+            this.setMode('select-poly-mosaic-inv');
+        } else if (key === 'p') {
+            this.setMode('select-poly-mosaic');
         } else if (key === '1') {
             this.setBrushSize(this.brushSizePresets.small);
         } else if (key === '2') {

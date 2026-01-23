@@ -1,6 +1,10 @@
 console.log('Google Photo Mosaic Content Script Loaded');
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'PING') {
+        sendResponse({ ok: true });
+        return;
+    }
     if (request.action === 'TOGGLE_EDITOR') {
         initializeEditor();
     }

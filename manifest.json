@@ -6,7 +6,8 @@
     "default_locale": "ja",
     "permissions": [
         "activeTab",
-        "downloads"
+        "downloads",
+        "scripting"
     ],
     "host_permissions": [
         "https://photos.google.com/*"

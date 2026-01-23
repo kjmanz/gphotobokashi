@@ -21,6 +21,9 @@ class Editor {
         this.selectionPolyline = null;
         this.selectionPolygon = null;
         this.selectionPointsGroup = null;
+        this.selectionSnapLine = null;
+        this.selectionCloseHint = null;
+        this.polyHelpTooltip = null;
         this.selectionActionsEl = null;
         this.pendingSelection = null;
         this.container = null;
@@ -68,10 +71,20 @@ class Editor {
         this.selectionPolygon.classList.add('selection-polygon');
         this.selectionPointsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         this.selectionPointsGroup.classList.add('selection-points');
+        this.selectionSnapLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        this.selectionSnapLine.classList.add('selection-snap-line');
+        this.selectionSnapLine.style.display = 'none';
         this.selectionSvg.appendChild(this.selectionPolygon);
         this.selectionSvg.appendChild(this.selectionPolyline);
+        this.selectionSvg.appendChild(this.selectionSnapLine);
         this.selectionSvg.appendChild(this.selectionPointsGroup);
         container.appendChild(this.selectionSvg);
+
+        // 閉じるヒント要素
+        this.selectionCloseHint = document.createElement('div');
+        this.selectionCloseHint.className = 'selection-close-hint';
+        this.selectionCloseHint.textContent = 'クリックで閉じる';
+        container.appendChild(this.selectionCloseHint);
 
         this.overlay.appendChild(container);
         document.body.appendChild(this.overlay);
@@ -209,10 +222,13 @@ class Editor {
         if (!isSelect) {
             this.clearSelectionUI();
             this.clearPolygonUI();
+            this.hidePolyHelpTooltip();
         } else if (isPoly) {
+            this.showPolyHelpTooltip();
             this.clearSelectionUI();
         } else {
             this.clearPolygonUI();
+            this.hidePolyHelpTooltip();
         }
         this.updateCursorSize();
     }
@@ -413,7 +429,15 @@ class Editor {
         if (!this.isPolySelecting) return;
         const coords = this.getCanvasCoordinates(e);
         this.polyHoverPoint = coords;
+        
+        // 始点へのホバー検出
+        const nearFirst = this.isNearFirstPoint(coords) && this.polyPoints.length >= 3;
+        this.updateStartPointHover(nearFirst);
+        this.updateCloseHint(nearFirst, e);
+        this.updateSnapLine(nearFirst, coords);
+        
         this.updatePolygonUI();
+        this.updatePolyHelpTooltip();
     }
 
     handlePolygonClick(e) {
@@ -456,10 +480,85 @@ class Editor {
         return Math.sqrt(dx * dx + dy * dy) <= threshold;
     }
 
+    updateStartPointHover(isHovering) {
+        const startPoint = this.selectionPointsGroup?.querySelector('.selection-point-start');
+        if (startPoint) {
+            startPoint.classList.toggle('hovering', isHovering);
+            this.canvas.style.cursor = isHovering ? 'pointer' : 'crosshair';
+        }
+    }
+
+    updateCloseHint(show, e) {
+        if (!this.selectionCloseHint) return;
+        if (show) {
+            const rect = this.canvas.getBoundingClientRect();
+            const scaleX = rect.width / this.canvas.width;
+            const scaleY = rect.height / this.canvas.height;
+            const x = this.polyPoints[0].x * scaleX;
+            const y = this.polyPoints[0].y * scaleY;
+            this.selectionCloseHint.style.left = x + 'px';
+            this.selectionCloseHint.style.top = y + 'px';
+            this.selectionCloseHint.classList.add('visible');
+        } else {
+            this.selectionCloseHint.classList.remove('visible');
+        }
+    }
+
+    updateSnapLine(show, coords) {
+        if (!this.selectionSnapLine) return;
+        if (show && this.polyPoints.length >= 3) {
+            const rect = this.canvas.getBoundingClientRect();
+            const scaleX = rect.width / this.canvas.width;
+            const scaleY = rect.height / this.canvas.height;
+            const lastPoint = this.polyPoints[this.polyPoints.length - 1];
+            const firstPoint = this.polyPoints[0];
+            
+            this.selectionSnapLine.setAttribute('x1', String(lastPoint.x * scaleX));
+            this.selectionSnapLine.setAttribute('y1', String(lastPoint.y * scaleY));
+            this.selectionSnapLine.setAttribute('x2', String(firstPoint.x * scaleX));
+            this.selectionSnapLine.setAttribute('y2', String(firstPoint.y * scaleY));
+            this.selectionSnapLine.style.display = 'block';
+        } else {
+            this.selectionSnapLine.style.display = 'none';
+        }
+    }
+
+    showPolyHelpTooltip() {
+        if (this.polyHelpTooltip) return;
+        this.polyHelpTooltip = document.createElement('div');
+        this.polyHelpTooltip.className = 'poly-help-tooltip';
+        this.updatePolyHelpTooltip();
+        this.overlay.appendChild(this.polyHelpTooltip);
+    }
+
+    updatePolyHelpTooltip() {
+        if (!this.polyHelpTooltip) return;
+        const count = this.polyPoints.length;
+        if (count === 0) {
+            this.polyHelpTooltip.innerHTML = '<span class="highlight">クリック</span>で頂点を追加';
+        } else if (count < 3) {
+            const remaining = 3 - count;
+            this.polyHelpTooltip.innerHTML = `あと<span class="highlight">${remaining}点</span>追加で閉じられます`;
+        } else {
+            this.polyHelpTooltip.innerHTML = '<span class="close-ready">始点をクリック</span>または<span class="highlight">ダブルクリック</span>で確定';
+        }
+    }
+
+    hidePolyHelpTooltip() {
+        if (this.polyHelpTooltip) {
+            this.polyHelpTooltip.remove();
+            this.polyHelpTooltip = null;
+        }
+    }
+
     finalizePolygonSelection() {
         if (this.polyPoints.length < 3) return;
         this.isPolySelecting = false;
         this.polyHoverPoint = null;
+        this.hidePolyHelpTooltip();
+        this.updateStartPointHover(false);
+        if (this.selectionCloseHint) this.selectionCloseHint.classList.remove('visible');
+        if (this.selectionSnapLine) this.selectionSnapLine.style.display = 'none';
         this.setPendingSelection('poly', { points: [...this.polyPoints] });
         this.updatePolygonUI();
     }
@@ -543,13 +642,19 @@ class Editor {
             while (this.selectionPointsGroup.firstChild) {
                 this.selectionPointsGroup.removeChild(this.selectionPointsGroup.firstChild);
             }
+            const canClose = this.polyPoints.length >= 3;
             this.polyPoints.forEach((p, idx) => {
                 const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                 c.setAttribute('cx', String(p.x * scaleX));
                 c.setAttribute('cy', String(p.y * scaleY));
-                c.setAttribute('r', '4');
+                // 始点は大きく、閉じられる状態ならさらに強調
+                const radius = idx === 0 ? (canClose ? 8 : 6) : 4;
+                c.setAttribute('r', String(radius));
                 c.classList.add('selection-point');
-                if (idx === 0) c.classList.add('selection-point-start');
+                if (idx === 0) {
+                    c.classList.add('selection-point-start');
+                    if (canClose) c.classList.add('can-close');
+                }
                 this.selectionPointsGroup.appendChild(c);
             });
         }
@@ -568,6 +673,9 @@ class Editor {
             }
         }
         if (this.selectionSvg) this.selectionSvg.style.display = 'none';
+        if (this.selectionSnapLine) this.selectionSnapLine.style.display = 'none';
+        if (this.selectionCloseHint) this.selectionCloseHint.classList.remove('visible');
+        this.hidePolyHelpTooltip();
     }
 
     handleKeyDown(e) {

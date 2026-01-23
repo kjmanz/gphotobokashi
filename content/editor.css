@@ -195,10 +195,92 @@ input[type="range"] {
   fill: #ffffff;
   stroke: #1a1a1a;
   stroke-width: 1;
+  transition: r 0.15s ease, fill 0.15s ease;
 }
 
 .selection-points .selection-point-start {
   fill: #8ab4f8;
+  stroke: #fff;
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+.selection-points .selection-point-start.can-close {
+  fill: #4caf50;
+  stroke: #fff;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 6px #4caf50);
+  animation: pulse-glow 1s ease-in-out infinite;
+}
+
+.selection-points .selection-point-start.hovering {
+  fill: #ffeb3b;
+  stroke: #fff;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 10px #ffeb3b);
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px #4caf50);
+  }
+  50% {
+    filter: drop-shadow(0 0 12px #4caf50);
+  }
+}
+
+.selection-close-hint {
+  position: absolute;
+  background: rgba(76, 175, 80, 0.95);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-family: 'Google Sans', Roboto, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+  margin-top: -12px;
+  z-index: 100001;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.selection-close-hint.visible {
+  opacity: 1;
+}
+
+.selection-snap-line {
+  stroke: #4caf50;
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+  opacity: 0.8;
+}
+
+.poly-help-tooltip {
+  position: fixed;
+  top: 75px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: 'Google Sans', Roboto, sans-serif;
+  z-index: 100002;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.poly-help-tooltip .highlight {
+  color: #8ab4f8;
+  font-weight: bold;
+}
+
+.poly-help-tooltip .close-ready {
+  color: #4caf50;
 }
 
 .selection-actions {

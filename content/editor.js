@@ -20,8 +20,12 @@ class Editor {
         this.selectionSvg = null;
         this.selectionPolyline = null;
         this.selectionPolygon = null;
+        this.selectionPointsGroup = null;
         this.selectionActionsEl = null;
         this.pendingSelection = null;
+        this.container = null;
+        this.toolbar = null;
+        this.actionsBar = null;
 
         // Bind methods
         this.handleMouseDown = this.handleMouseDown.bind(this);
@@ -29,6 +33,7 @@ class Editor {
         this.handleMouseUp = this.handleMouseUp.bind(this);
         this.handleDoubleClick = this.handleDoubleClick.bind(this);
         this.handleKeyDown = this.handleKeyDown.bind(this);
+        this.updateLayoutMetrics = this.updateLayoutMetrics.bind(this);
     }
 
     async init() {
@@ -46,6 +51,7 @@ class Editor {
 
         const container = document.createElement('div');
         container.id = 'gphoto-editor-canvas-container';
+        this.container = container;
 
         this.canvas = document.createElement('canvas');
         container.appendChild(this.canvas);
@@ -60,8 +66,11 @@ class Editor {
         this.selectionPolyline.classList.add('selection-polyline');
         this.selectionPolygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
         this.selectionPolygon.classList.add('selection-polygon');
+        this.selectionPointsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        this.selectionPointsGroup.classList.add('selection-points');
         this.selectionSvg.appendChild(this.selectionPolygon);
         this.selectionSvg.appendChild(this.selectionPolyline);
+        this.selectionSvg.appendChild(this.selectionPointsGroup);
         container.appendChild(this.selectionSvg);
 
         this.overlay.appendChild(container);
@@ -109,6 +118,7 @@ class Editor {
     createToolbar() {
         const toolbar = document.createElement('div');
         toolbar.id = 'gphoto-editor-toolbar';
+        this.toolbar = toolbar;
 
         toolbar.innerHTML = `
       <div class="gphoto-editor-group">
@@ -137,6 +147,7 @@ class Editor {
 
         const actions = document.createElement('div');
         actions.id = 'gphoto-editor-actions';
+        this.actionsBar = actions;
         actions.innerHTML = `
       <div class="gphoto-editor-group">
         <button id="btn-cancel" class="gphoto-editor-btn" title="キャンセル (Esc)">キャンセル</button>
@@ -154,6 +165,7 @@ class Editor {
     `;
 
         this.overlay.appendChild(actions);
+        this.updateLayoutMetrics();
 
         // Events
         document.getElementById('btn-mosaic').onclick = () => this.setMode('mosaic');
@@ -205,11 +217,21 @@ class Editor {
         this.updateCursorSize();
     }
 
+    updateLayoutMetrics() {
+        if (!this.container || !this.toolbar || !this.actionsBar) return;
+        const top = this.toolbar.getBoundingClientRect().height || 60;
+        const bottom = this.actionsBar.getBoundingClientRect().height || 60;
+        this.container.style.marginTop = `${top}px`;
+        this.container.style.marginBottom = `${bottom}px`;
+        this.container.style.maxHeight = `calc(100vh - ${top + bottom}px)`;
+    }
+
     attachEvents() {
         this.canvas.addEventListener('mousedown', this.handleMouseDown);
         this.canvas.addEventListener('dblclick', this.handleDoubleClick);
         window.addEventListener('mousemove', this.handleMouseMove);
         window.addEventListener('mouseup', this.handleMouseUp);
+        window.addEventListener('resize', this.updateLayoutMetrics);
         document.addEventListener('keydown', this.handleKeyDown);
     }
 
@@ -218,6 +240,7 @@ class Editor {
         this.canvas.removeEventListener('dblclick', this.handleDoubleClick);
         window.removeEventListener('mousemove', this.handleMouseMove);
         window.removeEventListener('mouseup', this.handleMouseUp);
+        window.removeEventListener('resize', this.updateLayoutMetrics);
         document.removeEventListener('keydown', this.handleKeyDown);
     }
 
@@ -516,6 +539,20 @@ class Editor {
 
         this.selectionPolyline.setAttribute('points', polylinePoints.join(' '));
         this.selectionPolygon.setAttribute('points', points.join(' '));
+        if (this.selectionPointsGroup) {
+            while (this.selectionPointsGroup.firstChild) {
+                this.selectionPointsGroup.removeChild(this.selectionPointsGroup.firstChild);
+            }
+            this.polyPoints.forEach((p, idx) => {
+                const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                c.setAttribute('cx', String(p.x * scaleX));
+                c.setAttribute('cy', String(p.y * scaleY));
+                c.setAttribute('r', '4');
+                c.classList.add('selection-point');
+                if (idx === 0) c.classList.add('selection-point-start');
+                this.selectionPointsGroup.appendChild(c);
+            });
+        }
         this.selectionSvg.style.display = this.polyPoints.length > 0 ? 'block' : 'none';
     }
 
@@ -525,6 +562,11 @@ class Editor {
         this.polyHoverPoint = null;
         if (this.selectionPolyline) this.selectionPolyline.setAttribute('points', '');
         if (this.selectionPolygon) this.selectionPolygon.setAttribute('points', '');
+        if (this.selectionPointsGroup) {
+            while (this.selectionPointsGroup.firstChild) {
+                this.selectionPointsGroup.removeChild(this.selectionPointsGroup.firstChild);
+            }
+        }
         if (this.selectionSvg) this.selectionSvg.style.display = 'none';
     }
 

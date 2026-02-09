@@ -11,14 +11,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 function initializeEditor() {
-    // Try to find the main image. 
-    // Heuristic: The largest image visible or specific selector if known.
-    // Google Photos uses complicated dynamic loading. 
-    // We'll look for an img tag that seems to be the main view.
+    // Try to find the main image.
+    // Heuristic: The largest visible image in the viewport.
+    // Google Photos uses complicated dynamic loading and preloads next/prev images.
+    // We need to filter out hidden/offscreen images to avoid selecting the wrong one.
 
     const images = Array.from(document.querySelectorAll('img'));
-    // Filter out tiny icons/thumbnails
-    const candidates = images.filter(img => img.width > 200 && img.height > 200);
+    // Filter out tiny icons/thumbnails and non-visible images
+    const candidates = images.filter(img => {
+        if (img.width <= 200 || img.height <= 200) return false;
+
+        // Visibility check - ensure the image is actually visible on screen
+        const rect = img.getBoundingClientRect();
+        const style = getComputedStyle(img);
+
+        // Check if image is within viewport
+        const inViewport = rect.top < window.innerHeight &&
+                           rect.bottom > 0 &&
+                           rect.left < window.innerWidth &&
+                           rect.right > 0;
+
+        // Check if image is visible (not hidden by CSS)
+        const isVisible = style.visibility !== 'hidden' &&
+                          style.opacity !== '0' &&
+                          style.display !== 'none';
+
+        return inViewport && isVisible;
+    });
 
     if (candidates.length === 0) {
         alert('Googleフォトで画像を開いてください。');

@@ -1,25 +1,41 @@
 document.addEventListener('DOMContentLoaded', async () => {
     const statusDiv = document.getElementById('status');
+    const actionArea = document.getElementById('action-area');
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    if (!tab.url) {
-        statusDiv.textContent = 'Googleフォトで画像を開いてください。';
-        statusDiv.className = 'error';
+    const showOpenGooglePhotos = (message, isError = false) => {
+        statusDiv.textContent = message;
+        statusDiv.className = isError ? 'status error' : 'status';
+        actionArea.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.textContent = 'Googleフォトを開く';
+        btn.onclick = () => {
+            chrome.tabs.create({ url: 'https://photos.google.com/' });
+            window.close();
+        };
+        actionArea.appendChild(btn);
+    };
+
+    if (!tab || !tab.url) {
+        showOpenGooglePhotos('Googleフォトで画像を開いてください。', true);
         return;
     }
 
-    let isGooglePhotos = false;
+    let isSupported = false;
     try {
         const url = new URL(tab.url);
-        isGooglePhotos = url.hostname === 'photos.google.com';
+        isSupported =
+            url.hostname === 'photos.google.com' ||
+            url.protocol === 'file:' ||
+            url.hostname === 'localhost' ||
+            url.hostname === '127.0.0.1';
     } catch {
-        isGooglePhotos = false;
+        isSupported = false;
     }
 
-    if (!isGooglePhotos) {
-        statusDiv.textContent = 'Googleフォトで画像を開いてください。';
-        statusDiv.className = 'error';
+    if (!isSupported) {
+        showOpenGooglePhotos('Googleフォト（またはモック画面）で写真を開いた状態でクリックしてください。');
         return;
     }
 
@@ -41,7 +57,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         statusDiv.textContent = '初期化に失敗しました。ページをリロードして再試行してください。';
-        statusDiv.className = 'error';
+        statusDiv.className = 'status error';
     }
 });
 

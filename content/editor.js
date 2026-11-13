@@ -10,13 +10,20 @@ class Editor {
         this.lastDrawPoint = null;
         this.lastClientPos = { x: 0, y: 0 };
 
-        this.effectType = 'mosaic'; // 'mosaic' | 'blur'
-        this.tool = 'brush';        // 'brush' | 'rect-in' | 'rect-out' | 'poly-in' | 'poly-out'
+        this.effectType = 'mosaic';      // 'mosaic' | 'blur'
+        this.tool = 'brush';             // 'brush' | 'rect' | 'poly' | 'magic-select'
+        this.selectionAreaMode = 'in';   // 'in' | 'out'
+        this.magicClickMode = 'add';     // 'add' | 'exclude'
 
         this.brushSize = 50;
         this.brushSizePresets = { small: 20, medium: 50, large: 100, xlarge: 160 };
         this.mosaicIntensity = 50; // 10-100
         this.blurIntensity = 50;   // 10-100
+        this.autoSensitivity = 50; // 10-95
+
+        this.autoBgBaseIndex = null;
+        this.autoBgActive = false;
+        this.autoBgSeq = 0;
 
         this.isSelecting = false;
         this.selectionStart = { x: 0, y: 0 };
@@ -32,7 +39,15 @@ class Editor {
         this.selectionPointsGroup = null;
         this.selectionSnapLine = null;
         this.selectionCloseHint = null;
-        this.polyHelpTooltip = null;
+
+        this.magicMaskCanvas = null;
+        this.magicSeedPoints = [];
+        this.magicExcludePoints = [];
+        this.magicCurrentMask = null;
+
+        this.candidatesContainer = null;
+        this.candidatesList = [];
+        this.isCandidatesVisible = false;
 
         this.container = null;
         this.toolbar = null;
@@ -63,10 +78,13 @@ class Editor {
         this.createToolbar();
         this.attachEvents();
         this.setEffectType('mosaic');
+        this.setSelectionAreaMode('in');
+        this.setMagicClickMode('add');
         this.setTool('brush');
         this.updateBrushUI();
-        this.updateIntensityUI();
+        this.updateStrengthUI();
         this.updateHistoryButtons();
+        this.updateLayoutMetrics();
         if (typeof window.gphotoUpdateQuickLaunch === 'function') {
             window.gphotoUpdateQuickLaunch();
         }
@@ -82,6 +100,14 @@ class Editor {
 
         this.canvas = document.createElement('canvas');
         container.appendChild(this.canvas);
+
+        this.magicMaskCanvas = document.createElement('canvas');
+        this.magicMaskCanvas.className = 'magic-mask-canvas';
+        container.appendChild(this.magicMaskCanvas);
+
+        this.candidatesContainer = document.createElement('div');
+        this.candidatesContainer.className = 'candidates-layer';
+        container.appendChild(this.candidatesContainer);
 
         this.compareImgEl = document.createElement('img');
         this.compareImgEl.className = 'compare-original-img';
@@ -165,212 +191,187 @@ class Editor {
         this.toolbar = toolbar;
 
         toolbar.innerHTML = `
-      <div class="toolbar-row toolbar-tools">
-        <div class="gphoto-editor-group tool-group">
-          <span class="group-label">加工タイプ</span>
-          <button id="btn-effect-mosaic" class="gphoto-editor-btn tool-btn" type="button" title="モザイク加工に切替 (M)">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-              <rect x="3" y="3" width="5" height="5" rx="1"></rect>
-              <rect x="9.5" y="3" width="5" height="5" rx="1" opacity="0.55"></rect>
-              <rect x="16" y="3" width="5" height="5" rx="1"></rect>
-              <rect x="3" y="9.5" width="5" height="5" rx="1" opacity="0.55"></rect>
-              <rect x="9.5" y="9.5" width="5" height="5" rx="1"></rect>
-              <rect x="16" y="9.5" width="5" height="5" rx="1" opacity="0.55"></rect>
-              <rect x="3" y="16" width="5" height="5" rx="1"></rect>
-              <rect x="9.5" y="16" width="5" height="5" rx="1" opacity="0.55"></rect>
-              <rect x="16" y="16" width="5" height="5" rx="1"></rect>
-            </svg>
-            <span>モザイク <kbd>M</kbd></span>
-          </button>
-          <button id="btn-effect-blur" class="gphoto-editor-btn tool-btn" type="button" title="ぼかし加工に切替 (B)">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M12 3.5C12 3.5 6 10.2 6 14.5a6 6 0 0 0 12 0c0-4.3-6-11-6-11z" fill="currentColor" fill-opacity="0.28"></path>
-              <circle cx="12" cy="15" r="2" fill="currentColor" stroke="none"></circle>
-            </svg>
-            <span>ぼかし <kbd>B</kbd></span>
-          </button>
-        </div>
-
-        <div class="gphoto-editor-group tool-group">
-          <span class="group-label">ツール（塗る・囲む）</span>
-          <button id="btn-tool-brush" class="gphoto-editor-btn tool-btn" type="button" title="なぞって加工 (D) / ホイールでサイズ変更">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"></path>
-              <path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"></path>
-            </svg>
-            <span>ブラシ <kbd>D</kbd></span>
-          </button>
-          <button id="btn-select-mosaic" class="gphoto-editor-btn tool-btn" type="button" title="ドラッグで囲んだ内側を即加工 (I)">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 2"></rect>
-              <rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" fill-opacity="0.7" stroke="none"></rect>
-            </svg>
-            <span>四角・内側 <kbd>I</kbd></span>
-          </button>
-          <button id="btn-select-mosaic-inv" class="gphoto-editor-btn tool-btn" type="button" title="ドラッグで囲んだ外側（背景）を即加工 (O)">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path fill="currentColor" fill-opacity="0.45" fill-rule="evenodd" d="M3 3h18v18H3V3zm5 5v8h8V8H8z"></path>
-              <rect x="8" y="8" width="8" height="8" rx="1"></rect>
-            </svg>
-            <span>四角・外側 <kbd>O</kbd></span>
-          </button>
-          <button id="btn-poly-mosaic" class="gphoto-editor-btn tool-btn" type="button" title="クリックで囲んだ多角形の内側を即加工 (P)">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
-              <polygon points="12,3 21,9 18,20 6,20 3,9" fill="currentColor" fill-opacity="0.55"></polygon>
-            </svg>
-            <span>多角形・内側 <kbd>P</kbd></span>
-          </button>
-          <button id="btn-poly-mosaic-inv" class="gphoto-editor-btn tool-btn" type="button" title="クリックで囲んだ多角形の外側（背景）を即加工 (Shift+P)">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
-              <path fill="currentColor" fill-opacity="0.45" fill-rule="evenodd" d="M2 2h20v20H2V2zm10 3.5L5.5 10l2.5 8.5h8L18.5 10 12 5.5z"></path>
-              <polygon points="12,5.5 18.5,10 16,18.5 8,18.5 5.5,10"></polygon>
-            </svg>
-            <span>多角形・外側 <kbd>⇧P</kbd></span>
-          </button>
-        </div>
-
-        <div class="gphoto-editor-group tool-group">
-          <span class="group-label">履歴・比較</span>
-          <button id="btn-undo" class="gphoto-editor-btn tool-btn" type="button" title="元に戻す (Ctrl+Z)">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M9 14 4 9l5-5"></path>
-              <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"></path>
-            </svg>
-            <span>戻す</span>
-          </button>
-          <button id="btn-redo" class="gphoto-editor-btn tool-btn" type="button" title="やり直し (Ctrl+Y)">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m15 14 5-5-5-5"></path>
-              <path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"></path>
-            </svg>
-            <span>やり直す</span>
-          </button>
-          <button id="btn-reset" class="gphoto-editor-btn tool-btn" type="button" title="最初の状態に戻す">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path>
-              <path d="M3 3v5h5"></path>
-            </svg>
-            <span>リセット</span>
-          </button>
-          <button id="btn-compare" class="gphoto-editor-btn tool-btn" type="button" title="押している間だけ元画像を表示 (Space長押し)">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
-              <circle cx="12" cy="12" r="3"></circle>
-            </svg>
-            <span>元画像と比較</span>
-          </button>
-        </div>
+      <div class="toolbar-section toolbar-left">
+        <button id="btn-cancel" class="gphoto-editor-btn subtle-btn" type="button" title="編集を終了して戻る (Esc)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12"></path>
+          </svg>
+          <span>閉じる</span>
+        </button>
+        <span class="toolbar-divider"></span>
+        <button id="btn-undo" class="gphoto-editor-btn" type="button" title="1つ前の操作に戻す (Ctrl+Z)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 14 4 9l5-5"></path>
+            <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"></path>
+          </svg>
+          <span>戻す</span>
+        </button>
+        <button id="btn-redo" class="gphoto-editor-btn" type="button" title="やり直す (Ctrl+Y)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m15 14 5-5-5-5"></path>
+            <path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"></path>
+          </svg>
+          <span>やり直し</span>
+        </button>
+        <button id="btn-reset" class="gphoto-editor-btn subtle-btn" type="button" title="最初の画像に戻す">
+          <span>リセット</span>
+        </button>
       </div>
 
-      <div class="toolbar-row toolbar-settings">
-        <div id="setting-brush" class="setting-item">
-          <label for="brush-slider">ブラシサイズ</label>
-          <input type="range" id="brush-slider" min="10" max="200" value="50">
-          <span id="brush-size-val" class="setting-value">50px</span>
-          <div class="preset-btns">
-            <button type="button" class="preset-btn" data-size="20" title="ブラシ 小 (1)">小</button>
-            <button type="button" class="preset-btn" data-size="50" title="ブラシ 中 (2)">中</button>
-            <button type="button" class="preset-btn" data-size="100" title="ブラシ 大 (3)">大</button>
-            <button type="button" class="preset-btn" data-size="160" title="ブラシ 特大 (4)">特大</button>
-          </div>
+      <div class="toolbar-section toolbar-center">
+        <div class="segmented-control" role="group" aria-label="加工の種類">
+          <button id="btn-effect-mosaic" class="seg-btn" type="button" title="モザイク加工に切替 (M)">モザイク</button>
+          <button id="btn-effect-blur" class="seg-btn" type="button" title="ぼかし加工に切替 (B)">ぼかし</button>
         </div>
-        <div id="setting-mosaic" class="setting-item">
-          <label for="mosaic-intensity-slider">モザイク強さ</label>
-          <input type="range" id="mosaic-intensity-slider" min="10" max="100" value="50">
-          <span id="mosaic-intensity-val" class="setting-value">50%</span>
-        </div>
-        <div id="setting-blur" class="setting-item">
-          <label for="blur-intensity-slider">ぼかし強さ</label>
-          <input type="range" id="blur-intensity-slider" min="10" max="100" value="50">
-          <span id="blur-intensity-val" class="setting-value">50%</span>
+
+        <span class="toolbar-divider"></span>
+
+        <button id="btn-tool-brush" class="gphoto-editor-btn" type="button" title="なぞって加工 (D) / ホイールで太さ調整">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"></path>
+            <path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"></path>
+          </svg>
+          <span>ブラシ</span>
+        </button>
+        <button id="btn-tool-rect" class="gphoto-editor-btn" type="button" title="ドラッグで四角く囲んで即加工 (I / O)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 2"></rect>
+          </svg>
+          <span>四角で囲む</span>
+        </button>
+        <button id="btn-tool-poly" class="gphoto-editor-btn" type="button" title="クリックで多角形に囲んで加工 (P)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="12,3 21,9 18,20 6,20 3,9"></polygon>
+          </svg>
+          <span>多角形で囲む</span>
+        </button>
+        <button id="btn-auto-bg" class="gphoto-editor-btn ai-btn" type="button" title="商品以外（背景）をワンクリックで自動加工 (A)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path>
+          </svg>
+          <span>✨ 背景を自動加工</span>
+        </button>
+        <button id="btn-detect-candidates" class="gphoto-editor-btn ai-btn" type="button" title="文字・顔・バーコードなどのモザイク候補を自動検出 (F)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="m21 21-4.3-4.3"></path>
+          </svg>
+          <span>🔍 自動検出</span>
+        </button>
+      </div>
+
+      <div class="toolbar-section toolbar-right">
+        <button id="btn-compare" class="gphoto-editor-btn" type="button" title="押している間だけ元の画像を表示 (Space長押し)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+          <span>元画像</span>
+        </button>
+        <button id="btn-copy" class="gphoto-editor-btn secondary-accent" type="button" title="クリップボードにコピー (Ctrl+C)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <span>コピー</span>
+        </button>
+        <div class="save-group">
+          <select id="download-format" title="保存形式">
+            <option value="png">PNG</option>
+            <option value="jpeg">JPG</option>
+          </select>
+          <button id="btn-download" class="gphoto-editor-btn primary" type="button" title="画像を保存・ダウンロード (Ctrl+S)">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>保存</span>
+          </button>
         </div>
       </div>
     `;
 
         this.overlay.appendChild(toolbar);
 
+        // Minimal Context-Aware Bottom Capsule
         const actions = document.createElement('div');
         actions.id = 'gphoto-editor-actions';
         this.actionsBar = actions;
         actions.innerHTML = `
-      <div class="gphoto-editor-group">
-        <button id="btn-cancel" class="gphoto-editor-btn action-btn" type="button" title="閉じる (Esc)">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-            <path d="M18 6 6 18M6 6l12 12"></path>
-          </svg>
-          <span>閉じる <kbd>Esc</kbd></span>
-        </button>
-        <span id="editor-status-hint" class="editor-status-hint"></span>
+      <div id="ctx-brush" class="ctx-group">
+        <label class="ctx-label" for="brush-slider">太さ</label>
+        <input type="range" id="brush-slider" min="10" max="200" value="50">
+        <span id="brush-size-val" class="ctx-value">50px</span>
+        <div class="preset-btns">
+          <button type="button" class="preset-btn" data-size="20">小</button>
+          <button type="button" class="preset-btn" data-size="50">中</button>
+          <button type="button" class="preset-btn" data-size="100">大</button>
+        </div>
       </div>
-      <div class="gphoto-editor-group">
-        <label class="download-format" title="ダウンロード形式">
-          <span>保存形式:</span>
-          <select id="download-format">
-            <option value="png">PNG</option>
-            <option value="jpeg">JPEG</option>
-          </select>
-        </label>
-        <button id="btn-copy" class="gphoto-editor-btn action-btn secondary-accent" type="button" title="画像をクリップボードにコピー (Ctrl+C)">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="9" y="9" width="13" height="13" rx="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-          </svg>
-          <span>コピー <kbd>Ctrl+C</kbd></span>
-        </button>
-        <button id="btn-download" class="gphoto-editor-btn action-btn primary" type="button" title="画像をダウンロード保存 (Ctrl+S)">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          <span>保存・ダウンロード <kbd>Ctrl+S</kbd></span>
-        </button>
+
+      <div id="ctx-area-mode" class="ctx-group">
+        <div class="segmented-control compact" role="group" aria-label="加工する範囲">
+          <button id="btn-area-in" class="seg-btn" type="button">内側を加工</button>
+          <button id="btn-area-out" class="seg-btn" type="button">外側（背景）を加工</button>
+        </div>
+        <span id="ctx-rect-hint" class="ctx-hint">ドラッグで囲むと即適用</span>
+      </div>
+
+      <div id="ctx-poly-actions" class="ctx-group">
+        <span id="ctx-poly-hint" class="ctx-hint">クリックで頂点を追加</span>
+        <button id="btn-poly-undo" class="gphoto-editor-btn compact-btn" type="button">1点戻す</button>
+        <button id="btn-poly-apply" class="gphoto-editor-btn compact-btn primary" type="button">確定する</button>
+        <button id="btn-poly-clear" class="gphoto-editor-btn compact-btn subtle-btn" type="button">クリア</button>
+      </div>
+
+      <div id="ctx-magic-actions" class="ctx-group">
+        <div class="segmented-control compact" role="group" aria-label="タッチ指定モード">
+          <button id="btn-magic-add" class="seg-btn" type="button">＋ 商品を残す</button>
+          <button id="btn-magic-exclude" class="seg-btn" type="button">－ 背景を消す</button>
+        </div>
+        <button id="magic-apply-out" class="gphoto-editor-btn compact-btn primary" type="button" disabled>✨ 外側（背景）を加工</button>
+        <button id="magic-apply-in" class="gphoto-editor-btn compact-btn" type="button" disabled>内側を加工</button>
+        <button id="magic-clear" class="gphoto-editor-btn compact-btn subtle-btn" type="button" disabled>クリア</button>
+      </div>
+
+      <div id="ctx-sensitivity" class="ctx-group">
+        <label class="ctx-label" for="sensitivity-slider">境界の感度</label>
+        <input type="range" id="sensitivity-slider" min="10" max="95" value="50">
+        <span id="sensitivity-val" class="ctx-value">50%</span>
+        <button id="btn-magic-finetune" class="gphoto-editor-btn compact-btn ai-btn" type="button">🪄 タッチで微調整</button>
+      </div>
+
+      <div id="ctx-candidates-actions" class="ctx-group">
+        <span class="ctx-hint">枠をクリックで加工</span>
+        <button id="candidates-apply-all" class="gphoto-editor-btn compact-btn primary" type="button">✨ すべて一括加工</button>
+        <button id="candidates-hide" class="gphoto-editor-btn compact-btn subtle-btn" type="button">枠を隠す</button>
+      </div>
+
+      <div id="ctx-strength" class="ctx-group ctx-strength-group">
+        <span class="toolbar-divider"></span>
+        <label class="ctx-label" for="effect-strength-slider">強さ</label>
+        <input type="range" id="effect-strength-slider" min="10" max="100" value="50">
+        <span id="effect-strength-val" class="ctx-value">50%</span>
       </div>
     `;
 
         this.overlay.appendChild(actions);
-        this.updateLayoutMetrics();
 
-        // Effect & Tool events
+        // Top Bar Events
+        document.getElementById('btn-cancel').onclick = () => this.requestClose();
+        document.getElementById('btn-undo').onclick = () => this.undo();
+        document.getElementById('btn-redo').onclick = () => this.redo();
+        document.getElementById('btn-reset').onclick = () => this.resetToOriginal();
+
         document.getElementById('btn-effect-mosaic').onclick = () => this.setEffectType('mosaic');
         document.getElementById('btn-effect-blur').onclick = () => this.setEffectType('blur');
 
         document.getElementById('btn-tool-brush').onclick = () => this.setTool('brush');
-        document.getElementById('btn-select-mosaic').onclick = () => this.setTool('rect-in');
-        document.getElementById('btn-select-mosaic-inv').onclick = () => this.setTool('rect-out');
-        document.getElementById('btn-poly-mosaic').onclick = () => this.setTool('poly-in');
-        document.getElementById('btn-poly-mosaic-inv').onclick = () => this.setTool('poly-out');
-
-        // Sliders & presets
-        const slider = document.getElementById('brush-slider');
-        slider.oninput = (e) => {
-            this.setBrushSize(parseInt(e.target.value, 10));
-        };
-
-        toolbar.querySelectorAll('.preset-btn').forEach((btn) => {
-            btn.onclick = () => {
-                const size = parseInt(btn.dataset.size, 10);
-                this.setBrushSize(size);
-                if (this.tool !== 'brush') {
-                    this.setTool('brush');
-                }
-            };
-        });
-
-        const mosaicSlider = document.getElementById('mosaic-intensity-slider');
-        mosaicSlider.oninput = (e) => {
-            this.setMosaicIntensity(parseInt(e.target.value, 10));
-        };
-
-        const blurSlider = document.getElementById('blur-intensity-slider');
-        blurSlider.oninput = (e) => {
-            this.setBlurIntensity(parseInt(e.target.value, 10));
-        };
-
-        // History, Reset & Compare
-        document.getElementById('btn-undo').onclick = () => this.undo();
-        document.getElementById('btn-redo').onclick = () => this.redo();
-        document.getElementById('btn-reset').onclick = () => this.resetToOriginal();
+        document.getElementById('btn-tool-rect').onclick = () => this.setTool('rect');
+        document.getElementById('btn-tool-poly').onclick = () => this.setTool('poly');
+        document.getElementById('btn-auto-bg').onclick = () => this.runAutoBackgroundEffect();
+        document.getElementById('btn-detect-candidates').onclick = () => this.toggleCandidateDetection();
 
         const compareBtn = document.getElementById('btn-compare');
         compareBtn.addEventListener('mousedown', (e) => {
@@ -384,101 +385,212 @@ class Editor {
         }, { passive: false });
         compareBtn.addEventListener('touchend', () => this.stopCompare());
 
-        // Actions
-        document.getElementById('btn-cancel').onclick = () => this.requestClose();
         document.getElementById('btn-copy').onclick = () => this.copyToClipboard();
         document.getElementById('btn-download').onclick = () => this.download();
+
+        // Bottom Context Capsule Events
+        document.getElementById('brush-slider').oninput = (e) => {
+            this.setBrushSize(parseInt(e.target.value, 10));
+        };
+        actions.querySelectorAll('.preset-btn').forEach((btn) => {
+            btn.onclick = () => {
+                this.setBrushSize(parseInt(btn.dataset.size, 10));
+            };
+        });
+
+        document.getElementById('btn-area-in').onclick = () => this.setSelectionAreaMode('in');
+        document.getElementById('btn-area-out').onclick = () => this.setSelectionAreaMode('out');
+
+        document.getElementById('btn-poly-undo').onclick = () => this.undoLastPolygonPoint();
+        document.getElementById('btn-poly-apply').onclick = () => this.finalizePolygonSelection();
+        document.getElementById('btn-poly-clear').onclick = () => {
+            this.clearPolygonUI();
+            this.updateContextCapsule();
+        };
+
+        document.getElementById('btn-magic-add').onclick = () => this.setMagicClickMode('add');
+        document.getElementById('btn-magic-exclude').onclick = () => this.setMagicClickMode('exclude');
+        document.getElementById('magic-apply-out').onclick = () => this.applyMagicSelection(true);
+        document.getElementById('magic-apply-in').onclick = () => this.applyMagicSelection(false);
+        document.getElementById('magic-clear').onclick = () => {
+            this.clearMagicSelection();
+            this.updateContextCapsule();
+        };
+
+        document.getElementById('sensitivity-slider').oninput = (e) => {
+            this.setAutoSensitivity(parseInt(e.target.value, 10));
+        };
+        document.getElementById('btn-magic-finetune').onclick = () => {
+            this.autoBgActive = false;
+            this.autoBgBaseIndex = null;
+            this.setTool('magic-select');
+            this.showToast('残したい商品の上をクリックしてください');
+        };
+
+        document.getElementById('candidates-apply-all').onclick = () => this.applyAllCandidates();
+        document.getElementById('candidates-hide').onclick = () => this.clearCandidates();
+
+        document.getElementById('effect-strength-slider').oninput = (e) => {
+            const val = parseInt(e.target.value, 10);
+            if (this.effectType === 'blur') {
+                this.setBlurIntensity(val);
+            } else {
+                this.setMosaicIntensity(val);
+            }
+            if (
+                this.autoBgActive &&
+                this.autoBgBaseIndex !== null &&
+                this.historyIndex === this.autoBgBaseIndex + 1
+            ) {
+                this.reapplyAutoBackgroundFromBase();
+            }
+        };
     }
 
     setEffectType(effectType) {
         this.effectType = effectType === 'blur' ? 'blur' : 'mosaic';
-        const btnMosaic = document.getElementById('btn-effect-mosaic');
-        const btnBlur = document.getElementById('btn-effect-blur');
-        if (btnMosaic) btnMosaic.classList.toggle('active', this.effectType === 'mosaic');
-        if (btnBlur) btnBlur.classList.toggle('active', this.effectType === 'blur');
+        document.getElementById('btn-effect-mosaic')?.classList.toggle('active', this.effectType === 'mosaic');
+        document.getElementById('btn-effect-blur')?.classList.toggle('active', this.effectType === 'blur');
+        this.updateStrengthUI();
 
-        this.updateSettingsVisibility();
-        this.updateStatusHint();
+        if (
+            this.autoBgActive &&
+            this.autoBgBaseIndex !== null &&
+            this.historyIndex === this.autoBgBaseIndex + 1
+        ) {
+            this.reapplyAutoBackgroundFromBase();
+        }
+    }
+
+    setSelectionAreaMode(mode) {
+        this.selectionAreaMode = mode === 'out' ? 'out' : 'in';
+        document.getElementById('btn-area-in')?.classList.toggle('active', this.selectionAreaMode === 'in');
+        document.getElementById('btn-area-out')?.classList.toggle('active', this.selectionAreaMode === 'out');
+    }
+
+    setMagicClickMode(mode) {
+        this.magicClickMode = mode === 'exclude' ? 'exclude' : 'add';
+        document.getElementById('btn-magic-add')?.classList.toggle('active', this.magicClickMode === 'add');
+        document.getElementById('btn-magic-exclude')?.classList.toggle('active', this.magicClickMode === 'exclude');
     }
 
     setTool(tool) {
         this.tool = tool;
-        const isPoly = tool.startsWith('poly');
-        const isRect = tool.startsWith('rect');
         const isBrush = tool === 'brush';
+        const isRect = tool === 'rect';
+        const isPoly = tool === 'poly';
+        const isMagic = tool === 'magic-select';
 
         document.getElementById('btn-tool-brush')?.classList.toggle('active', isBrush);
-        document.getElementById('btn-select-mosaic')?.classList.toggle('active', tool === 'rect-in');
-        document.getElementById('btn-select-mosaic-inv')?.classList.toggle('active', tool === 'rect-out');
-        document.getElementById('btn-poly-mosaic')?.classList.toggle('active', tool === 'poly-in');
-        document.getElementById('btn-poly-mosaic-inv')?.classList.toggle('active', tool === 'poly-out');
+        document.getElementById('btn-tool-rect')?.classList.toggle('active', isRect);
+        document.getElementById('btn-tool-poly')?.classList.toggle('active', isPoly);
+        document.getElementById('btn-magic-finetune')?.classList.toggle('active', isMagic);
 
-        this.canvas.style.cursor = isBrush ? 'none' : 'crosshair';
+        if (this.canvas) {
+            this.canvas.style.cursor = isBrush ? 'none' : 'crosshair';
+        }
         if (!isBrush && this.brushCursor) {
             this.brushCursor.style.display = 'none';
         }
 
-        if (isBrush) {
+        if (!isMagic) {
+            this.clearMagicSelection();
+        }
+        if (!isRect) {
             this.clearSelectionUI();
+        }
+        if (!isPoly) {
             this.clearPolygonUI();
-            this.hidePolyHelpTooltip();
-        } else if (isPoly) {
-            this.clearSelectionUI();
-            this.showPolyHelpTooltip();
-        } else if (isRect) {
-            this.clearPolygonUI();
-            this.hidePolyHelpTooltip();
         }
 
         this.updateCursorSize();
-        this.updateSettingsVisibility();
-        this.updateStatusHint();
+        this.updateContextCapsule();
+        this.updateLayoutMetrics();
     }
 
-    updateSettingsVisibility() {
-        const brushSetting = document.getElementById('setting-brush');
-        const mosaicSetting = document.getElementById('setting-mosaic');
-        const blurSetting = document.getElementById('setting-blur');
+    updateContextCapsule() {
+        const brushCtx = document.getElementById('ctx-brush');
+        const areaCtx = document.getElementById('ctx-area-mode');
+        const rectHint = document.getElementById('ctx-rect-hint');
+        const polyCtx = document.getElementById('ctx-poly-actions');
+        const magicCtx = document.getElementById('ctx-magic-actions');
+        const sensCtx = document.getElementById('ctx-sensitivity');
+        const btnFinetune = document.getElementById('btn-magic-finetune');
+        const candCtx = document.getElementById('ctx-candidates-actions');
 
-        if (brushSetting) {
-            brushSetting.classList.toggle('inactive-setting', this.tool !== 'brush');
-            brushSetting.classList.toggle('active-setting', this.tool === 'brush');
+        const isBrush = this.tool === 'brush';
+        const isRect = this.tool === 'rect';
+        const isPoly = this.tool === 'poly';
+        const isMagic = this.tool === 'magic-select';
+
+        if (brushCtx) {
+            brushCtx.style.display =
+                isBrush && !this.autoBgActive && !this.isCandidatesVisible ? 'flex' : 'none';
         }
-        if (mosaicSetting) {
-            mosaicSetting.classList.toggle('active-setting', this.effectType === 'mosaic');
-            mosaicSetting.classList.toggle('inactive-setting', this.effectType !== 'mosaic');
+        if (areaCtx) {
+            areaCtx.style.display = isRect || isPoly ? 'flex' : 'none';
         }
-        if (blurSetting) {
-            blurSetting.classList.toggle('active-setting', this.effectType === 'blur');
-            blurSetting.classList.toggle('inactive-setting', this.effectType !== 'blur');
+        if (rectHint) {
+            rectHint.style.display = isRect ? 'inline' : 'none';
+        }
+        if (polyCtx) {
+            polyCtx.style.display = isPoly ? 'flex' : 'none';
+            this.updatePolyContextButtons();
+        }
+        if (magicCtx) {
+            magicCtx.style.display = isMagic ? 'flex' : 'none';
+            this.updateMagicBarButtons();
+        }
+        if (sensCtx) {
+            sensCtx.style.display = this.autoBgActive || isMagic ? 'flex' : 'none';
+        }
+        if (btnFinetune) {
+            btnFinetune.style.display = this.autoBgActive && !isMagic ? 'inline-flex' : 'none';
+        }
+        if (candCtx) {
+            candCtx.style.display = this.isCandidatesVisible ? 'flex' : 'none';
+            this.updateCandidatesBar();
         }
     }
 
-    updateStatusHint() {
-        const hintEl = document.getElementById('editor-status-hint');
-        if (!hintEl) return;
-        const effectLabel = this.effectType === 'blur' ? 'ぼかし' : 'モザイク';
-        const hints = {
-            brush: `ドラッグでなぞって${effectLabel}（ホイールでサイズ変更 / Space長押しで元画像比較）`,
-            'rect-in': `ドラッグで囲んだ内側を即${effectLabel}（離すとすぐ適用）`,
-            'rect-out': `ドラッグで囲んだ外側（背景）を即${effectLabel}（離すとすぐ適用）`,
-            'poly-in': `クリックで囲んだ内側を即${effectLabel}（Backspaceで1点戻す / Enterで確定）`,
-            'poly-out': `クリックで囲んだ外側（背景）を即${effectLabel}（Backspaceで1点戻す / Enterで確定）`
-        };
-        hintEl.textContent = hints[this.tool] || '';
+    updatePolyContextButtons() {
+        const hint = document.getElementById('ctx-poly-hint');
+        const btnUndo = document.getElementById('btn-poly-undo');
+        const btnApply = document.getElementById('btn-poly-apply');
+        const btnClear = document.getElementById('btn-poly-clear');
+        const count = this.polyPoints.length;
+
+        if (hint) {
+            if (count === 0) {
+                hint.textContent = 'クリックで頂点を追加';
+                hint.style.display = 'inline';
+            } else if (count < 3) {
+                hint.textContent = `あと${3 - count}点追加`;
+                hint.style.display = 'inline';
+            } else {
+                hint.textContent = '始点をクリック or 確定';
+                hint.style.display = 'inline';
+            }
+        }
+        if (btnUndo) {
+            btnUndo.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+        if (btnApply) {
+            btnApply.style.display = count > 0 ? 'inline-flex' : 'none';
+            btnApply.disabled = count < 3;
+        }
+        if (btnClear) {
+            btnClear.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
     }
 
     updateLayoutMetrics() {
         if (!this.container || !this.toolbar || !this.actionsBar) return;
-        const top = this.toolbar.getBoundingClientRect().height || 80;
-        const bottom = this.actionsBar.getBoundingClientRect().height || 60;
-        this.container.style.marginTop = `${top}px`;
+        const top = this.toolbar.getBoundingClientRect().height || 60;
+        const bottom = (this.actionsBar.getBoundingClientRect().height || 52) + 28;
+        this.container.style.marginTop = `${top + 8}px`;
         this.container.style.marginBottom = `${bottom}px`;
         this.container.style.maxHeight = `calc(100vh - ${top + bottom + 16}px)`;
-
-        if (this.polyHelpTooltip) {
-            this.polyHelpTooltip.style.top = `${top + 12}px`;
-        }
     }
 
     attachEvents() {
@@ -529,8 +641,8 @@ class Editor {
         const label = document.getElementById('brush-size-val');
         if (slider) slider.value = String(this.brushSize);
         if (label) label.textContent = `${this.brushSize}px`;
-        if (this.toolbar) {
-            this.toolbar.querySelectorAll('.preset-btn').forEach((btn) => {
+        if (this.actionsBar) {
+            this.actionsBar.querySelectorAll('.preset-btn').forEach((btn) => {
                 const size = parseInt(btn.dataset.size, 10);
                 btn.classList.toggle('active', size === this.brushSize);
             });
@@ -540,24 +652,20 @@ class Editor {
 
     setMosaicIntensity(value) {
         this.mosaicIntensity = Math.min(100, Math.max(10, value));
-        this.updateIntensityUI();
+        this.updateStrengthUI();
     }
 
     setBlurIntensity(value) {
         this.blurIntensity = Math.min(100, Math.max(10, value));
-        this.updateIntensityUI();
+        this.updateStrengthUI();
     }
 
-    updateIntensityUI() {
-        const mosaicSlider = document.getElementById('mosaic-intensity-slider');
-        const mosaicLabel = document.getElementById('mosaic-intensity-val');
-        if (mosaicSlider) mosaicSlider.value = String(this.mosaicIntensity);
-        if (mosaicLabel) mosaicLabel.textContent = `${this.mosaicIntensity}%`;
-
-        const blurSlider = document.getElementById('blur-intensity-slider');
-        const blurLabel = document.getElementById('blur-intensity-val');
-        if (blurSlider) blurSlider.value = String(this.blurIntensity);
-        if (blurLabel) blurLabel.textContent = `${this.blurIntensity}%`;
+    updateStrengthUI() {
+        const val = this.effectType === 'blur' ? this.blurIntensity : this.mosaicIntensity;
+        const slider = document.getElementById('effect-strength-slider');
+        const label = document.getElementById('effect-strength-val');
+        if (slider) slider.value = String(val);
+        if (label) label.textContent = `${val}%`;
     }
 
     getMosaicBlockSize() {
@@ -582,9 +690,12 @@ class Editor {
 
     handleMouseMove(e) {
         this.lastClientPos = { x: e.clientX, y: e.clientY };
-        if (this.tool.startsWith('poly')) {
+        if (this.tool === 'magic-select') {
+            return;
+        }
+        if (this.tool === 'poly') {
             this.handlePolygonMove(e);
-        } else if (this.tool.startsWith('rect')) {
+        } else if (this.tool === 'rect') {
             this.handleSelectionMove(e);
         } else {
             this.handleBrushMove(e);
@@ -595,9 +706,20 @@ class Editor {
         if (e.target !== this.canvas) return;
         if (e.button !== 0) return;
 
-        if (this.tool.startsWith('poly')) {
+        if (this.tool === 'magic-select') {
+            this.handleMagicClick(e);
+            return;
+        }
+
+        if (this.autoBgActive) {
+            this.autoBgActive = false;
+            this.autoBgBaseIndex = null;
+            this.updateContextCapsule();
+        }
+
+        if (this.tool === 'poly') {
             this.handlePolygonClick(e);
-        } else if (this.tool.startsWith('rect')) {
+        } else if (this.tool === 'rect') {
             this.handleSelectionDown(e);
         } else {
             this.isDrawing = true;
@@ -608,11 +730,11 @@ class Editor {
     }
 
     handleMouseUp(e) {
-        if (this.tool.startsWith('poly')) {
+        if (this.tool === 'magic-select' || this.tool === 'poly') {
             return;
         }
 
-        if (this.tool.startsWith('rect')) {
+        if (this.tool === 'rect') {
             this.handleSelectionUp(e);
         } else {
             if (this.isDrawing) {
@@ -758,7 +880,6 @@ class Editor {
         this.updateSnapLine(nearFirst);
 
         this.updatePolygonUI();
-        this.updatePolyHelpTooltip();
     }
 
     handlePolygonClick(e) {
@@ -769,7 +890,7 @@ class Editor {
             this.polyPoints = [coords];
             this.polyHoverPoint = null;
             this.updatePolygonUI();
-            this.updatePolyHelpTooltip();
+            this.updatePolyContextButtons();
             return;
         }
 
@@ -780,11 +901,11 @@ class Editor {
 
         this.polyPoints.push(coords);
         this.updatePolygonUI();
-        this.updatePolyHelpTooltip();
+        this.updatePolyContextButtons();
     }
 
     handleDoubleClick() {
-        if (!this.tool.startsWith('poly')) return;
+        if (this.tool !== 'poly') return;
         if (this.polyPoints.length >= 3) {
             this.finalizePolygonSelection();
         }
@@ -795,11 +916,10 @@ class Editor {
         this.polyPoints.pop();
         if (this.polyPoints.length === 0) {
             this.clearPolygonUI();
-            this.showPolyHelpTooltip();
         } else {
             this.updatePolygonUI();
-            this.updatePolyHelpTooltip();
         }
+        this.updatePolyContextButtons();
     }
 
     isNearFirstPoint(coords) {
@@ -855,51 +975,16 @@ class Editor {
         }
     }
 
-    showPolyHelpTooltip() {
-        if (!this.polyHelpTooltip) {
-            this.polyHelpTooltip = document.createElement('div');
-            this.polyHelpTooltip.className = 'poly-help-tooltip';
-            this.overlay.appendChild(this.polyHelpTooltip);
-        }
-        const top = this.toolbar ? this.toolbar.getBoundingClientRect().height : 80;
-        this.polyHelpTooltip.style.top = `${top + 12}px`;
-        this.updatePolyHelpTooltip();
-    }
-
-    updatePolyHelpTooltip() {
-        if (!this.polyHelpTooltip) return;
-        const count = this.polyPoints.length;
-        const areaText = this.tool === 'poly-out' ? '外側' : '内側';
-        const effectText = this.effectType === 'blur' ? 'ぼかし' : 'モザイク';
-        if (count === 0) {
-            this.polyHelpTooltip.innerHTML = `<span class="highlight">クリック</span>で頂点を追加（確定で${areaText}に${effectText}）`;
-        } else if (count < 3) {
-            const remaining = 3 - count;
-            this.polyHelpTooltip.innerHTML = `あと<span class="highlight">${remaining}点</span>追加で確定できます（Backspaceで1点戻す）`;
-        } else {
-            this.polyHelpTooltip.innerHTML = '<span class="close-ready">始点をクリック</span> / <span class="highlight">ダブルクリック</span> / <span class="highlight">Enter</span> で即適用';
-        }
-    }
-
-    hidePolyHelpTooltip() {
-        if (this.polyHelpTooltip) {
-            this.polyHelpTooltip.remove();
-            this.polyHelpTooltip = null;
-        }
-    }
-
     finalizePolygonSelection() {
         if (this.polyPoints.length < 3) return;
         const points = [...this.polyPoints];
         this.clearPolygonUI();
+        this.updatePolyContextButtons();
         this.applySelection('poly', { points });
-        if (this.tool.startsWith('poly')) {
-            this.showPolyHelpTooltip();
-        }
     }
 
     applySelection(kind, data) {
-        const isInverse = this.tool.endsWith('-out');
+        const isInverse = this.selectionAreaMode === 'out';
         const isBlur = this.effectType === 'blur';
 
         if (kind === 'rect') {
@@ -996,7 +1081,9 @@ class Editor {
         if (this.selectionSvg) this.selectionSvg.style.display = 'none';
         if (this.selectionSnapLine) this.selectionSnapLine.style.display = 'none';
         if (this.selectionCloseHint) this.selectionCloseHint.classList.remove('visible');
-        this.canvas && (this.canvas.style.cursor = this.tool === 'brush' ? 'none' : 'crosshair');
+        if (this.canvas) {
+            this.canvas.style.cursor = this.tool === 'brush' ? 'none' : 'crosshair';
+        }
     }
 
     // --- Keyboard Shortcuts ---
@@ -1038,12 +1125,15 @@ class Editor {
 
         if (key === 'escape') {
             e.preventDefault();
-            if (this.isPolySelecting || this.isSelecting) {
+            if (this.isCandidatesVisible) {
+                this.clearCandidates();
+            } else if (this.tool === 'magic-select' && this.magicSeedPoints.length > 0) {
+                this.clearMagicSelection();
+                this.updateContextCapsule();
+            } else if (this.isPolySelecting || this.isSelecting) {
                 this.clearSelectionUI();
                 this.clearPolygonUI();
-                if (this.tool.startsWith('poly')) {
-                    this.showPolyHelpTooltip();
-                }
+                this.updatePolyContextButtons();
             } else {
                 this.requestClose();
             }
@@ -1060,13 +1150,13 @@ class Editor {
             return;
         }
 
-        if ((key === 'backspace' || key === 'delete') && this.tool.startsWith('poly') && this.isPolySelecting) {
+        if ((key === 'backspace' || key === 'delete') && this.tool === 'poly' && this.isPolySelecting) {
             e.preventDefault();
             this.undoLastPolygonPoint();
             return;
         }
 
-        if (key === 'enter' && this.tool.startsWith('poly') && this.isPolySelecting && this.polyPoints.length >= 3) {
+        if (key === 'enter' && this.tool === 'poly' && this.isPolySelecting && this.polyPoints.length >= 3) {
             e.preventDefault();
             this.finalizePolygonSelection();
             return;
@@ -1079,13 +1169,23 @@ class Editor {
         } else if (key === 'd') {
             this.setTool('brush');
         } else if (key === 'i') {
-            this.setTool('rect-in');
+            this.setSelectionAreaMode('in');
+            this.setTool('rect');
         } else if (key === 'o') {
-            this.setTool('rect-out');
+            this.setSelectionAreaMode('out');
+            this.setTool('rect');
         } else if (key === 'p' && e.shiftKey) {
-            this.setTool('poly-out');
+            this.setSelectionAreaMode('out');
+            this.setTool('poly');
         } else if (key === 'p') {
-            this.setTool('poly-in');
+            this.setSelectionAreaMode('in');
+            this.setTool('poly');
+        } else if (key === 'a') {
+            this.runAutoBackgroundEffect();
+        } else if (key === 'w') {
+            this.setTool('magic-select');
+        } else if (key === 'f') {
+            this.toggleCandidateDetection();
         } else if (key === '1') {
             this.setBrushSize(this.brushSizePresets.small);
         } else if (key === '2') {
@@ -1140,17 +1240,23 @@ class Editor {
 
     undo() {
         if (this.historyIndex > 0) {
+            this.autoBgActive = false;
+            this.autoBgBaseIndex = null;
             this.historyIndex--;
             this.restoreState(this.history[this.historyIndex]);
             this.updateHistoryButtons();
+            this.updateContextCapsule();
         }
     }
 
     redo() {
         if (this.historyIndex < this.history.length - 1) {
+            this.autoBgActive = false;
+            this.autoBgBaseIndex = null;
             this.historyIndex++;
             this.restoreState(this.history[this.historyIndex]);
             this.updateHistoryButtons();
+            this.updateContextCapsule();
         }
     }
 
@@ -1166,9 +1272,12 @@ class Editor {
 
     resetToOriginal() {
         if (this.history.length === 0 || this.historyIndex === 0) return;
+        this.autoBgActive = false;
+        this.autoBgBaseIndex = null;
         this.restoreState(this.history[0], () => {
             this.saveState();
-            this.showToast('最初の状態にリセットしました（Ctrl+Zで戻せます）');
+            this.updateContextCapsule();
+            this.showToast('最初の状態にリセットしました');
         });
     }
 
@@ -1236,7 +1345,7 @@ class Editor {
             }
             try {
                 await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-                this.showToast('✅ クリップボードにコピーしました！そのまま貼り付けできます');
+                this.showToast('✅ クリップボードにコピーしました');
             } catch (err) {
                 console.error('Clipboard copy failed:', err);
                 alert('クリップボードへのコピーに失敗しました。ページをクリックしてから再試行してください。');
@@ -1305,7 +1414,7 @@ class Editor {
             if (chrome.runtime.lastError || (response && response.ok === false)) {
                 alert('ダウンロードに失敗しました。');
             } else {
-                this.showToast('💾 ダウンロードを開始しました');
+                this.showToast('💾 保存しました');
             }
         });
     }
@@ -1324,6 +1433,8 @@ class Editor {
 
     close() {
         this.stopCompare();
+        this.clearMagicSelection();
+        this.clearCandidates();
         this.detachEvents();
         if (this.toastTimer) {
             clearTimeout(this.toastTimer);
@@ -1341,6 +1452,317 @@ class Editor {
         if (typeof window.gphotoUpdateQuickLaunch === 'function') {
             window.gphotoUpdateQuickLaunch();
         }
+    }
+
+    // --- AI / Auto-Assist Features ---
+
+    setAutoSensitivity(value) {
+        this.autoSensitivity = Math.min(95, Math.max(10, value));
+        const slider = document.getElementById('sensitivity-slider');
+        const label = document.getElementById('sensitivity-val');
+        if (slider) slider.value = String(this.autoSensitivity);
+        if (label) label.textContent = `${this.autoSensitivity}%`;
+
+        if (this.tool === 'magic-select' && this.magicSeedPoints.length > 0) {
+            this.updateMagicPreview();
+        } else if (
+            this.autoBgActive &&
+            this.autoBgBaseIndex !== null &&
+            this.historyIndex === this.autoBgBaseIndex + 1
+        ) {
+            this.reapplyAutoBackgroundFromBase();
+        }
+    }
+
+    runAutoBackgroundEffect() {
+        if (!this.canvas || !this.ctx) return;
+        this.clearCandidates();
+        if (this.tool === 'magic-select') {
+            this.setTool('brush');
+        }
+
+        if (this.autoBgActive && this.autoBgBaseIndex !== null && this.historyIndex === this.autoBgBaseIndex + 1) {
+            this.reapplyAutoBackgroundFromBase();
+            return;
+        }
+
+        this.autoBgBaseIndex = this.historyIndex;
+        const maskData = AutoDetector.segmentSubject(this.canvas, {
+            sensitivity: this.autoSensitivity
+        });
+
+        ImageProcessor.applyEffectByMask(this.ctx, maskData, {
+            effectType: this.effectType,
+            isInverse: true,
+            blockSize: this.getMosaicBlockSize(),
+            blurAmount: this.getBlurAmount()
+        });
+
+        this.saveState();
+        this.autoBgActive = true;
+        this.updateContextCapsule();
+        this.updateLayoutMetrics();
+        const effectLabel = this.effectType === 'blur' ? 'ぼかし' : 'モザイク';
+        this.showToast(`✨ 背景に${effectLabel}を適用しました（下のスライダーで微調整できます）`);
+    }
+
+    reapplyAutoBackgroundFromBase() {
+        if (this.autoBgBaseIndex === null || !this.history[this.autoBgBaseIndex]) return;
+        const seq = ++this.autoBgSeq;
+        this.restoreState(this.history[this.autoBgBaseIndex], () => {
+            if (seq !== this.autoBgSeq || !this.canvas || !this.ctx) return;
+            const maskData = AutoDetector.segmentSubject(this.canvas, {
+                sensitivity: this.autoSensitivity
+            });
+            ImageProcessor.applyEffectByMask(this.ctx, maskData, {
+                effectType: this.effectType,
+                isInverse: true,
+                blockSize: this.getMosaicBlockSize(),
+                blurAmount: this.getBlurAmount()
+            });
+            if (this.historyIndex < this.history.length) {
+                this.history[this.historyIndex] = this.canvas.toDataURL();
+            }
+        });
+    }
+
+    handleMagicClick(e) {
+        const pt = this.getCanvasCoordinates(e);
+        if (e.altKey || this.magicClickMode === 'exclude') {
+            this.magicExcludePoints.push(pt);
+        } else {
+            this.magicSeedPoints.push(pt);
+        }
+        this.updateMagicPreview();
+    }
+
+    updateMagicPreview() {
+        if (!this.magicMaskCanvas || !this.canvas) return;
+        if (this.magicSeedPoints.length === 0) {
+            this.magicCurrentMask = null;
+            this.magicMaskCanvas.style.display = 'none';
+            this.updateMagicBarButtons();
+            return;
+        }
+
+        const maskData = AutoDetector.segmentSubject(this.canvas, {
+            seedPoints: this.magicSeedPoints,
+            excludePoints: this.magicExcludePoints,
+            sensitivity: this.autoSensitivity
+        });
+        this.magicCurrentMask = maskData;
+
+        const { mask, width: mw, height: mh } = maskData;
+        this.magicMaskCanvas.width = mw;
+        this.magicMaskCanvas.height = mh;
+        const mCtx = this.magicMaskCanvas.getContext('2d');
+        const imgData = mCtx.createImageData(mw, mh);
+        const data = imgData.data;
+
+        for (let i = 0; i < mask.length; i++) {
+            const p = i * 4;
+            if (mask[i] === 1) {
+                data[p] = 52;
+                data[p + 1] = 168;
+                data[p + 2] = 83;
+                data[p + 3] = 115;
+            } else {
+                data[p + 3] = 0;
+            }
+        }
+        mCtx.putImageData(imgData, 0, 0);
+
+        const sx = mw / this.canvas.width;
+        const sy = mh / this.canvas.height;
+        for (const p of this.magicSeedPoints) {
+            mCtx.beginPath();
+            mCtx.arc(p.x * sx, p.y * sy, 4, 0, Math.PI * 2);
+            mCtx.fillStyle = '#34a853';
+            mCtx.fill();
+            mCtx.lineWidth = 1.5;
+            mCtx.strokeStyle = '#ffffff';
+            mCtx.stroke();
+        }
+        for (const p of this.magicExcludePoints) {
+            mCtx.beginPath();
+            mCtx.arc(p.x * sx, p.y * sy, 4, 0, Math.PI * 2);
+            mCtx.fillStyle = '#ea4335';
+            mCtx.fill();
+            mCtx.lineWidth = 1.5;
+            mCtx.strokeStyle = '#ffffff';
+            mCtx.stroke();
+        }
+
+        this.magicMaskCanvas.style.display = 'block';
+        this.updateMagicBarButtons();
+    }
+
+    updateMagicBarButtons() {
+        const hasMask = Boolean(this.magicCurrentMask);
+        const hasPoints = this.magicSeedPoints.length > 0 || this.magicExcludePoints.length > 0;
+        const btnOut = document.getElementById('magic-apply-out');
+        const btnIn = document.getElementById('magic-apply-in');
+        const btnClear = document.getElementById('magic-clear');
+        if (btnOut) btnOut.disabled = !hasMask;
+        if (btnIn) btnIn.disabled = !hasMask;
+        if (btnClear) btnClear.disabled = !hasPoints;
+    }
+
+    applyMagicSelection(isInverse) {
+        if (!this.magicCurrentMask) return;
+        ImageProcessor.applyEffectByMask(this.ctx, this.magicCurrentMask, {
+            effectType: this.effectType,
+            isInverse,
+            blockSize: this.getMosaicBlockSize(),
+            blurAmount: this.getBlurAmount()
+        });
+        this.saveState();
+        const effectLabel = this.effectType === 'blur' ? 'ぼかし' : 'モザイク';
+        const areaLabel = isInverse ? '外側（背景）' : '選択部分';
+        this.clearMagicSelection();
+        this.setTool('brush');
+        this.showToast(`✨ ${areaLabel}に${effectLabel}を適用しました`);
+    }
+
+    clearMagicSelection() {
+        this.magicSeedPoints = [];
+        this.magicExcludePoints = [];
+        this.magicCurrentMask = null;
+        if (this.magicMaskCanvas) {
+            this.magicMaskCanvas.style.display = 'none';
+            const mCtx = this.magicMaskCanvas.getContext('2d');
+            if (mCtx) mCtx.clearRect(0, 0, this.magicMaskCanvas.width, this.magicMaskCanvas.height);
+        }
+        this.updateMagicBarButtons();
+    }
+
+    async toggleCandidateDetection() {
+        if (this.isCandidatesVisible) {
+            this.clearCandidates();
+            return;
+        }
+        if (!this.canvas) return;
+
+        this.autoBgActive = false;
+        this.autoBgBaseIndex = null;
+        if (this.tool === 'magic-select') {
+            this.setTool('brush');
+        }
+
+        this.showToast('🔍 候補を検出中...');
+        const candidates = await AutoDetector.detectCandidates(this.canvas);
+        if (!this.overlay) return;
+
+        if (!candidates || candidates.length === 0) {
+            this.showToast('候補は見つかりませんでした');
+            return;
+        }
+
+        this.candidatesList = candidates.map((c) => ({ ...c, applied: false }));
+        this.isCandidatesVisible = true;
+        document.getElementById('btn-detect-candidates')?.classList.add('active');
+        this.renderCandidates();
+        this.updateContextCapsule();
+        this.updateLayoutMetrics();
+        this.showToast(`🔍 ${this.candidatesList.length}件の候補が見つかりました（クリックで加工）`);
+    }
+
+    renderCandidates() {
+        if (!this.candidatesContainer || !this.canvas) return;
+        this.candidatesContainer.innerHTML = '';
+        const cw = this.canvas.width || 1;
+        const ch = this.canvas.height || 1;
+
+        this.candidatesList.forEach((cand) => {
+            const box = document.createElement('button');
+            box.type = 'button';
+            box.className = `candidate-box candidate-${cand.type}`;
+            if (cand.applied) box.classList.add('applied');
+            box.style.left = `${(cand.x / cw) * 100}%`;
+            box.style.top = `${(cand.y / ch) * 100}%`;
+            box.style.width = `${(cand.width / cw) * 100}%`;
+            box.style.height = `${(cand.height / ch) * 100}%`;
+            box.title = `${cand.label}（クリックして加工）`;
+
+            const badge = document.createElement('span');
+            badge.className = 'candidate-label';
+            badge.textContent = cand.applied ? '✓ 加工済み' : cand.label;
+            box.appendChild(badge);
+
+            box.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.applyCandidateBox(cand, box);
+            });
+
+            this.candidatesContainer.appendChild(box);
+        });
+        this.candidatesContainer.style.display = 'block';
+    }
+
+    applyRectEffect(rect) {
+        if (this.effectType === 'blur') {
+            ImageProcessor.applyBlurToRect(this.ctx, rect, this.getBlurAmount());
+        } else {
+            ImageProcessor.applyMosaicToRect(this.ctx, rect, this.getMosaicBlockSize());
+        }
+    }
+
+    applyCandidateBox(cand, boxEl) {
+        if (cand.applied) return;
+        this.autoBgActive = false;
+        this.autoBgBaseIndex = null;
+
+        this.applyRectEffect({ x: cand.x, y: cand.y, width: cand.width, height: cand.height });
+        cand.applied = true;
+        if (boxEl) {
+            boxEl.classList.add('applied');
+            const badge = boxEl.querySelector('.candidate-label');
+            if (badge) badge.textContent = '✓ 加工済み';
+        }
+        this.saveState();
+        this.updateCandidatesBar();
+        const effectLabel = this.effectType === 'blur' ? 'ぼかし' : 'モザイク';
+        this.showToast(`${cand.label} に${effectLabel}を適用しました`);
+    }
+
+    applyAllCandidates() {
+        const pending = this.candidatesList.filter((c) => !c.applied);
+        if (pending.length === 0) return;
+
+        this.autoBgActive = false;
+        this.autoBgBaseIndex = null;
+
+        pending.forEach((cand) => {
+            this.applyRectEffect({ x: cand.x, y: cand.y, width: cand.width, height: cand.height });
+            cand.applied = true;
+        });
+
+        this.saveState();
+        this.renderCandidates();
+        this.updateCandidatesBar();
+        const effectLabel = this.effectType === 'blur' ? 'ぼかし' : 'モザイク';
+        this.showToast(`✨ ${pending.length}件すべてに${effectLabel}を適用しました`);
+    }
+
+    updateCandidatesBar() {
+        const btnAll = document.getElementById('candidates-apply-all');
+        if (!btnAll) return;
+        const remaining = this.candidatesList.filter((c) => !c.applied).length;
+        btnAll.textContent = remaining > 0 ? `✨ すべて一括加工 (${remaining}件)` : '✓ すべて加工済み';
+        btnAll.disabled = remaining === 0;
+    }
+
+    clearCandidates() {
+        this.isCandidatesVisible = false;
+        this.candidatesList = [];
+        document.getElementById('btn-detect-candidates')?.classList.remove('active');
+        if (this.candidatesContainer) {
+            this.candidatesContainer.innerHTML = '';
+            this.candidatesContainer.style.display = 'none';
+        }
+        this.updateContextCapsule();
+        this.updateLayoutMetrics();
     }
 
     toggle(targetImage) {

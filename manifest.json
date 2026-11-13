@@ -35,6 +35,7 @@
                 "https://photos.google.com/*"
             ],
             "js": [
+                "lib/auto-detector.js",
                 "lib/image-processor.js",
                 "content/editor.js",
                 "content/content.js"

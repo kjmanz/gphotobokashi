@@ -78,7 +78,7 @@ async function ensureInjected(tabId) {
         });
         await chrome.scripting.executeScript({
             target: { tabId },
-            files: ['lib/image-processor.js', 'content/editor.js', 'content/content.js']
+            files: ['lib/auto-detector.js', 'lib/image-processor.js', 'content/editor.js', 'content/content.js']
         });
         return true;
     } catch (e) {
